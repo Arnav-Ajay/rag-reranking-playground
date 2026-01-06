@@ -25,14 +25,30 @@ def export_chunks_csv(all_chunks, output_path="data/chunks_debug.csv"):
     print(f"Chunks exported to {output_path}")
 
 # Retrieval evaluation
-def run_retrieval_evaluation(args, vector_store, bm25_index, inspect_k=42):
+def run_retrieval_evaluation(vector_store, bm25_index, inspect_k=42, questions_csv=None, output_csv=None):
     import pandas as pd
     print("Running retrieval evaluation...\n")
 
-    questions_df = pd.read_csv(args.questions_csv)
+    questions_df = pd.read_csv(questions_csv)
     evaluation_results = []
 
-    def eval_one(mode, question_text):
+    def extract_chunk_ids(results, mode):
+        if mode == "sparse":
+            # results = [(chunk_id, bm25_score)]
+            return [chunk_id for chunk_id, _ in results]
+        elif mode == "dense" or mode == "hybrid":
+            # dense or hybrid results = [(chunk_id, doc_id, chunk_text, score)]
+            return [chunk_id for chunk_id, _, _, _ in results]
+        return None
+        
+    def extract_chunk_scores(results, mode):
+        if mode == "sparse":
+            return [bm25_score for _, bm25_score in results]
+        elif mode == "dense" or mode == "hybrid":
+            return [score for _, _, _, score in results]
+        return None
+    
+    def eval_one(mode, question_text, ids_only=True):
         if mode == "dense":
             results = retrieve_similar_documents(vector_store, question_text, top_k=inspect_k)
         elif mode == "sparse":
@@ -42,14 +58,7 @@ def run_retrieval_evaluation(args, vector_store, bm25_index, inspect_k=42):
                                       top_k=inspect_k, dense_top_n=inspect_k, sparse_top_n=inspect_k)
         else:
             raise ValueError("Unknown mode")
-        def extract_chunk_ids(results, mode):
-            if mode == "sparse":
-                # results = [(chunk_id, bm25_score)]
-                return [chunk_id for chunk_id, _ in results]
-            else:
-                # dense / hybrid
-                return [chunk_id for chunk_id, _, _, _ in results]
-        return extract_chunk_ids(results, mode)
+        return results
 
     for _, row in questions_df.iterrows():
         question_id = row["question_id"]
@@ -57,9 +66,16 @@ def run_retrieval_evaluation(args, vector_store, bm25_index, inspect_k=42):
         gold_chunk_id = int(row["gold_chunk_id"])
         gold_doc_id = row.get("gold_doc_id", "")
 
-        dense_ids = eval_one("dense", question_text)
-        sparse_ids = eval_one("sparse", question_text)
-        hybrid_ids = eval_one("hybrid", question_text)
+        dense_results = eval_one("dense", question_text, ids_only=False)
+        sparse_results = eval_one("sparse", question_text, ids_only=False)
+        hybrid_results = eval_one("hybrid", question_text, ids_only=False)
+
+        dense_scores = extract_chunk_scores(dense_results, "dense")
+        sparse_scores = extract_chunk_scores(sparse_results, "sparse")
+
+        dense_ids = extract_chunk_ids(dense_results, "dense")
+        sparse_ids = extract_chunk_ids(sparse_results, "sparse")
+        hybrid_ids = extract_chunk_ids(hybrid_results, "hybrid")
 
         def rank_of_gold(ids):
             try:
@@ -76,31 +92,31 @@ def run_retrieval_evaluation(args, vector_store, bm25_index, inspect_k=42):
             "gold_chunk_id": gold_chunk_id,
             "gold_doc_id": gold_doc_id,
 
-            # Dense (Week-2 metrics)
+            # Dense (rag-eval_retrieval)
             "retrieved_chunk_ids_dense": "|".join(map(str, dense_ids)),
             "rank_of_first_relevant_dense": rank_of_gold(dense_ids),
             "retrieved_in_top_k_dense": in_top_k(dense_ids, k=4),
-
-            "notes": row.get("notes", "")
+            "retrieval_score_dense": "|".join(map(str, dense_scores)),
         }
 
-        # Sparse (Week-3 comparison)
+        # Sparse (rag-hybrid-retrieval)
         if sparse_ids is not None:
             result.update({
                 "retrieved_chunk_ids_sparse": "|".join(map(str, sparse_ids)),
                 "rank_of_first_relevant_sparse": rank_of_gold(sparse_ids),
                 "retrieved_in_top_k_sparse": in_top_k(sparse_ids, k=4),
+                "retrieval_score_sparse": "|".join(map(str, sparse_scores)),
             })
 
-        # Hybrid (Week-3 comparison)
+        # Hybrid (rag-hybrid-retrieval)
         if hybrid_ids is not None:
             result.update({
                 "retrieved_chunk_ids_hybrid": "|".join(map(str, hybrid_ids)),
                 "rank_of_first_relevant_hybrid": rank_of_gold(hybrid_ids),
                 "retrieved_in_top_k_hybrid": in_top_k(hybrid_ids, k=4),
 
-                # Deltas (allowed because derived from existing metrics)
-                "delta_rank": (
+                # Deltas (Dense vs Hybrid)
+                "delta_de_hy_rank": (
                     (rank_of_gold(dense_ids) - rank_of_gold(hybrid_ids))
                     if rank_of_gold(dense_ids) != "" and rank_of_gold(hybrid_ids) != ""
                     else ""
@@ -109,8 +125,8 @@ def run_retrieval_evaluation(args, vector_store, bm25_index, inspect_k=42):
 
         evaluation_results.append(result)
 
-    pd.DataFrame(evaluation_results).to_csv(args.eval_output, index=False)
-    print(f"Retrieval evaluation results saved to {args.eval_output}\n")
+    pd.DataFrame(evaluation_results).to_csv(output_csv, index=False)
+    print(f"Retrieval evaluation results saved to {output_csv}\n")
 
 def main():
     
@@ -185,7 +201,7 @@ def main():
     # Retrieval evaluation
     # updated to run hybrid
     if args.run_retrieval_eval:
-        run_retrieval_evaluation(args, vector_store, bm25_index=bm25_index)
+        run_retrieval_evaluation(vector_store, bm25_index=bm25_index, questions_csv=args.questions_csv, output_csv=args.eval_output)
         return
 
     ############# End of Retrieval Observability & Debugging #############

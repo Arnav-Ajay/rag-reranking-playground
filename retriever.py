@@ -211,13 +211,15 @@ def hybrid_retriever(query, vector_store, bm25_index,
     # Return shape compatible with app: (chunk_id, doc_id, text, score)
     # score here is "priority bucket" (small int) just for printing
     out = []
-    for _, _, _, _, info in final[:top_k]:
+    for priority, _, _, _, info in final[:top_k]:
         # Hybrid "score" is not a similarity score.
         # We expose retrieval provenance instead.
         hybrid_score = {
             "priority": priority,
             "dense_rank": info["dense_rank"],
-            "sparse_rank": info["sparse_rank"]
+            "dense_score": info["dense_score"],
+            "sparse_rank": info["sparse_rank"],
+            "sparse_score": info["bm25_score"],
         }
 
         out.append((
