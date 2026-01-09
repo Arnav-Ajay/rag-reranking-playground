@@ -8,7 +8,7 @@ The previous repository, `rag-hybrid-retrieval`, established a critical result:
 
 In other words:
 
-* The *right* chunks are often present in the candidate set
+* The *right* chunks are often present in the candidate pool
 * But they lose priority to less decisive neighbors
 * And therefore never reach the language model
 
@@ -23,7 +23,7 @@ It is a **controlled experiment in conflict resolution**.
 
 ## What Problem This System Solves
 
-This repository introduces an explicit reranking stage after retrieval and measures its impact using the unchanged evaluation harness from `rag-retrieval-eval`, under a **frozen retrieval contract**.
+This repository introduces an **explicit reranking stage after retrieval** and measures its impact using the **unchanged evaluation harness from `rag-retrieval-eval`**, under a **frozen retrieval contract**.
 
 It answers:
 
@@ -50,19 +50,19 @@ This repository deliberately avoids:
 
 If an improvement cannot be attributed **solely** to reranking, it does not belong here.
 
- 
-
 ---
 
 ## System Relationship to Previous Repositories
 
 This repository builds directly on:
 
-* **[`rag-minimal-control`](https://github.com/Arnav-Ajay/rag-minimal-control)**
+* **`rag-minimal-control`**
   A strict, deterministic RAG control system
-* **[`rag-retrieval-eval`](https://github.com/Arnav-Ajay/rag-retrieval-eval)**
+
+* **`rag-retrieval-eval`**
   A retrieval observability and evaluation harness
-* **[`rag-hybrid-retrieval`](https://github.com/Arnav-Ajay/rag-hybrid-retrieval)**
+
+* **`rag-hybrid-retrieval`**
   Dense + sparse retrieval with explicit hybrid merge logic
 
 All components from these repositories remain **frozen and authoritative**, including:
@@ -88,10 +88,12 @@ The **only new system component** is an explicit reranking stage.
 
   * Hybrid-retrieved candidate pool (Top-N)
   * Deterministic evaluation questions
-* Output:
+* Outputs:
 
   * Reranked candidate lists
   * Before/after retrieval metrics
+
+No retrieval decisions are altered upstream.
 
 ---
 
@@ -115,13 +117,15 @@ Query ───────────→ Sparse Retriever
 **Critical constraint:**
 The candidate pool is **identical before and after reranking**.
 
+Reranking may only **reorder**, never add or remove candidates.
+
 ---
 
-## Reranking Strategy (Week-4 Scope)
+## Reranking Strategy
 
 This repository evaluates **explicit, inspectable reranking logic**, applied *only* to the hybrid candidate set.
 
-Two reranker classes are in scope:
+### Reranker Classes in Scope
 
 1. **Explainable heuristic reranker**
 
@@ -131,19 +135,20 @@ Two reranker classes are in scope:
 2. **Cross-encoder reranker** *(optional, evaluated second)*
 
    * Introduced only if justified by heuristic results
-   * Compared under the same evaluation contract
+   * Compared under the same frozen evaluation contract
 
 No reranker is allowed to:
 
-* Access corpus-level information
+* Access corpus-level statistics
 * Modify candidate membership
 * Influence retrieval thresholds
+* Leak gold labels
 
 ---
 
 ## Evaluation Methodology
 
-All evaluation uses the **retrieval evaluation harness** from `rag-retrieve-eval`.
+All evaluation uses the **unchanged retrieval evaluation harness** from `rag-retrieval-eval`.
 
 ### Metrics (Locked)
 
@@ -153,41 +158,6 @@ All evaluation uses the **retrieval evaluation harness** from `rag-retrieve-eval
 
 No new metrics are introduced.
 
-### Stratification (Required)
-
-All results are reported:
-
-* Overall
-* Stratified by **question intent**:
-
-  * factual
-  * definition
-  * procedural
-  * rationale
-  * scope / inventory
-
----
-
-## Failure Taxonomy (Locked)
-
-Observed failures are labeled using the existing taxonomy:
-
-### Failure Layers
-
-* `retrieval`
-* `reranking`
-* `generation`
-
-### Observable Failure Types
-
-* `ranking_failure`
-* `evidence_not_prioritized`
-* `answer_not_used`
-* `hallucination_no_evidence`
-
-No causal claims are made without controlled comparison.
-
----
 
 ## Expected Outcomes
 
@@ -195,18 +165,18 @@ This system is expected to show:
 
 * Clear reranking gains for:
 
-  * definition
-  * procedural
-  * scope / inventory questions
-* Limited or no gains for:
+  * **definition** questions
+  * **procedural** questions
+  * **scope / inventory** questions
+* Limited or inconsistent gains for:
 
-  * rationale-heavy questions
+  * **rationale-heavy** questions
 * Persistent failures where:
 
   * candidate pools are noisy
   * decisive evidence is distributed across chunks
 
-Reranking is not expected to:
+Reranking is **not** expected to:
 
 * Improve corpus coverage
 * Eliminate hallucinations
@@ -226,9 +196,11 @@ By isolating reranking from:
 * generation
 * evaluation
 
-One can say, with precision:
+one can say, with precision:
 
-> *When reranking helps, why it helps — and when it does not.*
+> **When reranking helps, why it helps — and when it does not.**
+
+---
 
 ## Empirical Results
 
@@ -236,23 +208,23 @@ This section reports **measured reranking impact**, using the **unchanged evalua
 
 ### Overall Impact
 
-Reranking was evaluated over a **fixed candidate pool** (Top-N = 42), with Top-K = 4 passed to the generator.
+Reranking was evaluated over a **fixed candidate pool** (Top-N = 42), with **Top-K = 4** passed to the generator.
 
 **Median Rank of First Relevant Chunk:**
 
-| System                    | Median Rank        |
-| ------------------------- | ------------------ |
-| Hybrid Retrieval          | **10.5**           |
-| Reranked Hybrid           | **3.5**            |
-| **Median Improvement**    | **+4.5 positions** |
+| System           | Median Rank |
+| ---------------- | ----------- |
+| Hybrid Retrieval | **10.5**    |
+| Reranked Hybrid  | **3.5**     |
+| **Median Gain**  | **+4.5**    |
 
 **Interpretation:**
 
 * In many cases, the correct chunk was already present in the candidate pool
-* Reranking substantially improved **priority**, not recall
-* Gains are achieved *without* changing retrieval, embeddings, or chunking
+* Reranking materially improved **priority**, not recall
+* Gains were achieved *without* changing retrieval, embeddings, or chunking
 
-This confirms our previous hypothesis:
+This confirms the Week-3 hypothesis:
 
 > **Retrieval often fails by misordering evidence, not by missing it.**
 
@@ -260,13 +232,9 @@ This confirms our previous hypothesis:
 
 ## Results Stratified by Question Intent
 
-Performance gains are **not uniform** across question types.
+Reranking benefits are **not uniform** across question types.
 
-Reranking benefits are strongest when the query implies **structural or lexical cues** that can be exploited post-retrieval.
-
-### Observed Patterns
-
-**Strong gains observed for:**
+### Strong Gains Observed For
 
 * **Definition questions**
 
@@ -278,12 +246,12 @@ Reranking benefits are strongest when the query implies **structural or lexical 
 
   * Enumerations and inclusion language
 
-**Limited or inconsistent gains for:**
+### Limited or Inconsistent Gains For
 
 * **Rationale questions**
 
   * Evidence distributed across multiple chunks
-  * Explanatory prose without dense lexical overlap
+  * Explanatory prose with weak local anchors
 
 ### Implication
 
@@ -291,10 +259,10 @@ Reranking improves **decisiveness**, not **semantic synthesis**.
 
 When correct evidence is:
 
-* localized → reranking helps
-* distributed → reranking saturates quickly
+* **localized** → reranking helps
+* **distributed** → reranking saturates quickly
 
-These failures are **not reranking failures** — they indicate upstream chunking or representation limits (Week-5).
+These failures are **not reranking failures** — they indicate upstream limits in chunking or representation (Week-5).
 
 ---
 
@@ -307,7 +275,7 @@ The following failure modes persist after reranking:
 * Queries requiring cross-chunk reasoning
 * Generator ignoring provided evidence
 
-These remain out of scope by design.
+These remain out of scope **by design**.
 
 ---
 
@@ -323,6 +291,5 @@ Reranking:
 * reduces ranking failures
 * does not expand recall
 * does not guarantee correct answers
-
 
 ---

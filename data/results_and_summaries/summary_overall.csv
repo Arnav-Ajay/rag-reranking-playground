@@ -1,0 +1,12 @@
+Metric,Value
+Total questions,54
+Questions with any relevant retrieval,~50
+"Median rank (first relevant, any retriever)",~16–18
+% rank > Top-K (K=4),~85–90%
+Top-K success rate (Dense),~0–2%
+Top-K success rate (Sparse),~25–30%
+Top-K success rate (Hybrid),~30–35%
+,
+Critical interpretation:,
+rag-retrieval-eval: Answers exist but never reach Top-K,
+rag-hybrid-retrieval: Answers sometimes reach Top-K â€” but ranking is unstable,

@@ -8,7 +8,7 @@ import csv
 
 
 # Export chunks to CSV for debugging
-def export_chunks_csv(all_chunks, output_path="data/chunks_debug.csv"):
+def export_chunks_csv(all_chunks, output_path):
 
     with open(output_path, mode='w', newline='', encoding='utf-8') as csvfile:
         fieldnames = ['chunk_id', 'doc_id', 'text']
@@ -62,7 +62,8 @@ def run_retrieval_evaluation(vector_store, bm25_index, inspect_k=42, questions_c
 
     for _, row in questions_df.iterrows():
         question_id = row["question_id"]
-        question_text = row["question"]
+        question_intent = row["question_intent"]
+        question_text = row["question_text"]
         gold_chunk_id = int(row["gold_chunk_id"])
         gold_doc_id = row.get("gold_doc_id", "")
 
@@ -88,7 +89,8 @@ def run_retrieval_evaluation(vector_store, bm25_index, inspect_k=42, questions_c
 
         result = {
             "question_id": question_id,
-            "question": question_text,
+            "question_intent": question_intent,
+            "question_text": question_text,
             "gold_chunk_id": gold_chunk_id,
             "gold_doc_id": gold_doc_id,
 
@@ -131,18 +133,19 @@ def run_retrieval_evaluation(vector_store, bm25_index, inspect_k=42, questions_c
 def main():
     
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pdf-dir", default=r"data/") # Path to directory containing PDFs
-    parser.add_argument("--query", default="What downstream actions are suggested after Step-1 completion?") # Query for retrieval
+    parser.add_argument("--pdf-dir", default=r"data/input_pdfs/") # Path to directory containing PDFs
+    parser.add_argument("--query", default="What is self-attention mechanism?") # Query for retrieval
     
     parser.add_argument("--export-chunks", action="store_true") # Export chunks to CSV for debugging
     parser.add_argument("--corpus-diag", action="store_true") # Print corpus diagnostics
     parser.add_argument("--run-retrieval-eval", action="store_true") # Run retrieval evaluation
-    
-    parser.add_argument("--questions-csv", default=r"data/retrieval_eval.csv") # Path to questions csv
-    parser.add_argument("--eval-output", default=r"data/retrieval_evaluation_results.csv") # output to eval results
+
+    parser.add_argument("--chunks-csv", default=r"data/chunks_and_questions/chunks_output.csv") # Path to questions csv
+    parser.add_argument("--questions-csv", default=r"data/chunks_and_questions/question_input.csv") # Path to questions csv
+    parser.add_argument("--eval-output", default=r"data/results_and_summaries/retrieval_evaluation_results.csv") # output to eval results
 
     parser.add_argument("--hybrid-retrieval", action="store_true") # enable hybrid retrieval
-    parser.add_argument("--hybrid-output", default=r"data/hybrid_evaluation_results.csv") # output to hybrid retrieval
+    parser.add_argument("--hybrid-output", default=r"data/results_and_summaries/hybrid_evaluation_results.csv") # output to hybrid retrieval
 
     args = parser.parse_args()
 
@@ -182,7 +185,7 @@ def main():
     # Export chunks to CSV for debugging
     if args.export_chunks:
         print("\n")
-        export_chunks_csv(all_chunks)
+        export_chunks_csv(all_chunks, args.chunks_csv)
 
     # Corpus diagnostics
     if args.corpus_diag:
@@ -220,8 +223,23 @@ def main():
     context = ""
 
     for chunk_id, doc_id, chunk_text, score in results:
-        print(f"Chunk {chunk_id} | doc={doc_id} | similarity={score:.4f}")
+
+        if isinstance(score, dict):
+            # Hybrid retrieval: provenance, not similarity
+            print(
+                f"Chunk {chunk_id} | doc={doc_id} | "
+                f"priority={score.get('priority')} | "
+                f"dense_rank={score.get('dense_rank')} | "
+                f"sparse_rank={score.get('sparse_rank')}"
+            )
+        else:
+            # Dense retrieval: scalar similarity
+            print(
+                f"Chunk {chunk_id} | doc={doc_id} | similarity={score:.4f}"
+            )
+
         context += f"\n[Chunk {chunk_id} | Source: {doc_id}]\n{chunk_text}"
+
 
     prompt = f"""
 You are answering a question using ONLY the information provided below.

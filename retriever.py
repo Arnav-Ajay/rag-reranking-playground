@@ -203,7 +203,7 @@ def hybrid_retriever(query, vector_store, bm25_index,
         # Deterministic tiebreak (not a heuristic, just stable ordering)
         dr_t = dr if dr is not None else 10**9
         sr_t = sr if sr is not None else 10**9
-
+        info["priority"] = priority
         final.append((priority, dr_t, sr_t, chunk_id, info))
 
     final.sort(key=lambda x: (x[0], x[1], x[2], x[3]))
@@ -215,7 +215,7 @@ def hybrid_retriever(query, vector_store, bm25_index,
         # Hybrid "score" is not a similarity score.
         # We expose retrieval provenance instead.
         hybrid_score = {
-            "priority": priority,
+            "priority": info["priority"],
             "dense_rank": info["dense_rank"],
             "dense_score": info["dense_score"],
             "sparse_rank": info["sparse_rank"],

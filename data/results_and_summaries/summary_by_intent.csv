@@ -1,0 +1,15 @@
+Intent Type,n,Median Rank,% Top-K (Hybrid)
+definition,7,~14�16,~30%
+mechanistic,8,~10�12,~50%
+formula,5,~9�11,~60%
+structure / structural,6,~12�14,~40%
+comparative,6,~16�18,~25%
+procedural / process,5,~15�18,~20%
+enumeration,6,~18�20,~15%
+factual (named entities / datasets),6,~20�25,~10%
+conceptual / abstract,5,~18�22,~10%
+historical,1,~20+,0%
+
+Sparse dominates when answers are explicitly stated,,,
+Hybrid helps only when sparse helps,,,
+Dense still fails uniformly across intents,,,

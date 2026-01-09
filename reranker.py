@@ -453,9 +453,9 @@ def build_question_level_output(
 # -------------------------
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Week-4 explainable reranker over retrieval artifacts")
-    p.add_argument("--input-xlsx", default="data/input_artifact.xlsx", help="Question-level retrieval artifact (xlsx)")
-    p.add_argument("--chunks-csv", default="data/chunks_debug.csv", help="Chunk lookup CSV (chunk_id, doc_id, text)")
-    p.add_argument("--output-csv", default="data/rag_reranked_artifact.csv", help="Question-level reranked output CSV")
+    p.add_argument("--input-csv", default="data/chunks_and_questions/input_artifact.csv", help="Question-level retrieval artifact (xlsx)")
+    p.add_argument("--chunks-csv", default="data/chunks_and_questions/chunks_output.csv", help="Chunk lookup CSV (chunk_id, doc_id, text)")
+    p.add_argument("--output-csv", default="data/results_and_summaries/rag_reranked_artifact.csv", help="Question-level reranked output CSV")
     p.add_argument("--debug-candidates", default="", help="Optional candidate-level debug CSV output path")
     p.add_argument("--top-n", type=int, default=42, help="Candidate pool size to log per question (must match Week-3 inspect_k)")
     p.add_argument("--k", type=int, default=4, help="Evaluation top-k (locked to 4 in Week-2/3)")
@@ -472,7 +472,7 @@ def main():
     args = parse_args()
 
     # Load question-level artifact
-    df_q = pd.read_excel(args.input_xlsx)
+    df_q = pd.read_csv(args.input_csv)
 
     # Try to be compatible with either "question" or "question_text"
     if "question_text" not in df_q.columns and "question" in df_q.columns:
