@@ -2,32 +2,33 @@
 
 ## Why This Repository Exists
 
-The previous repository, `rag-hybrid-retrieval`, established a critical result:
+The previous repository, [`rag-hybrid-retrieval`](https://github.com/Arnav-Ajay/rag-hybrid-retrieval), established a critical result:
 
 > **Hybrid retrieval improves evidence surfacing — but does not reliably convert surfaced evidence into Top-K inclusion.**
 
 In other words:
 
 * The *right* chunks are often present in the candidate pool
-* But they lose priority to less decisive neighbors
-* And therefore never reach the language model
+* But they are misordered relative to less decisive neighbors
+* And therefore never reach the generator (Top-K = 4)
 
 This repository exists to isolate and answer a single, narrow question:
 
 > **Given a fixed candidate pool that already contains the correct evidence, can reranking reliably promote that evidence into Top-K?**
 
-This is not an optimization demo.
-It is a **controlled experiment in conflict resolution**.
+This is **not** an optimization demo.
+It is a **controlled experiment in ranking failure and resolution**.
 
 ---
 
-## What Problem This System Solves
+## What Problem This System Addresses
 
 This repository introduces an **explicit reranking stage after retrieval** and measures its impact using the **unchanged evaluation harness from `rag-retrieval-eval`**, under a **frozen retrieval contract**.
 
 It answers:
 
-* Whether reranking improves **Top-K dominance**
+* Whether reranking improves **Top-K inclusion**
+* Whether improvements depend on **reranking signal strength**
 * Which **question intents** benefit from reranking
 * Which failure modes **reranking does not resolve**
 
@@ -52,20 +53,20 @@ If an improvement cannot be attributed **solely** to reranking, it does not belo
 
 ---
 
-## System Relationship to Previous Repositories
+## Relationship to Previous Repositories
 
 This repository builds directly on:
 
-* **`rag-minimal-control`**
+* **[`rag-minimal-control`](https://github.com/Arnav-Ajay/rag-minimal-control)**
   A strict, deterministic RAG control system
 
-* **`rag-retrieval-eval`**
+* **[`rag-retrieval-eval`](https://github.com/Arnav-Ajay/rag-retrieval-eval)**
   A retrieval observability and evaluation harness
 
-* **`rag-hybrid-retrieval`**
+* **[`rag-hybrid-retrieval`](https://github.com/Arnav-Ajay/rag-hybrid-retrieval)**
   Dense + sparse retrieval with explicit hybrid merge logic
 
-All components from these repositories remain **frozen and authoritative**, including:
+All upstream components remain **frozen and authoritative**, including:
 
 * Corpus
 * Chunking
@@ -73,7 +74,7 @@ All components from these repositories remain **frozen and authoritative**, incl
 * Dense similarity function
 * Sparse retriever (BM25)
 * Hybrid merge logic
-* Top-K passed to the LLM (K = 4)
+* Top-K passed to the generator (K = 4)
 * Evaluation metrics
 
 The **only new system component** is an explicit reranking stage.
@@ -82,16 +83,19 @@ The **only new system component** is an explicit reranking stage.
 
 ## System Overview
 
-**Repo Contract:**
+**Repo Contract**
 
-* Inputs:
+**Inputs**
 
-  * Hybrid-retrieved candidate pool (Top-N)
-  * Deterministic evaluation questions
-* Outputs:
+* Hybrid-retrieved candidate pool (Top-N = 42)
+* Deterministic evaluation questions
+* Gold chunk labels (for evaluation only)
 
-  * Reranked candidate lists
-  * Before/after retrieval metrics
+**Outputs**
+
+* Reranked candidate lists
+* Rank-of-first-relevant metrics
+* Δ vs hybrid baseline
 
 No retrieval decisions are altered upstream.
 
@@ -114,119 +118,83 @@ Query ───────────→ Sparse Retriever
               Top-K → Generator (unchanged)
 ```
 
-**Critical constraint:**
-The candidate pool is **identical before and after reranking**.
+**Critical constraint**
 
-Reranking may only **reorder**, never add or remove candidates.
+The candidate pool is **identical before and after reranking**.
+Reranking may **only reorder**, never add or remove candidates.
 
 ---
 
-## Reranking Strategy
+## Reranking Strategies Evaluated
 
-This repository evaluates **explicit, inspectable reranking logic**, applied *only* to the hybrid candidate set.
+This repository evaluates **two reranking classes**, applied *only* to the frozen hybrid candidate pool.
 
-### Reranker Classes in Scope
+### 1. Heuristic Reranker (Explainable)
 
-1. **Explainable heuristic reranker**
+* Linear combination of interpretable signals:
 
-   * Linear combination of interpretable signals
-   * Designed for failure analysis and causal clarity
+  * normalized dense score
+  * normalized sparse score
+  * lexical overlap
+  * keyphrase match
+  * length penalty
+* No learning
+* Fully inspectable
 
-2. **Cross-encoder reranker** *(optional, evaluated second)*
+**Purpose:**
+Failure analysis and causal clarity — *not* performance maximization.
 
-   * Introduced only if justified by heuristic results
-   * Compared under the same frozen evaluation contract
+---
 
-No reranker is allowed to:
+### 2. Cross-Encoder Reranker (Learned Relevance)
 
-* Access corpus-level statistics
-* Modify candidate membership
-* Influence retrieval thresholds
-* Leak gold labels
+* Jointly encodes *(query, chunk)* pairs
+* Produces a learned relevance score
+* Used strictly as a **ranking signal**
+
+**Constraints**
+
+* No access to gold labels
+* No corpus-level statistics
+* No modification of candidate membership
+* Evaluated under the same frozen contract
 
 ---
 
 ## Evaluation Methodology
 
-All evaluation uses the **unchanged retrieval evaluation harness** from `rag-retrieval-eval`.
+All evaluation uses the **unchanged harness from `rag-retrieval-eval`**.
 
-### Metrics (Locked)
+**Metrics (Locked)**
 
-* **Context Recall @ K (K = 4)**
 * **Rank of First Relevant Chunk**
-* Δ vs hybrid baseline
+* **Context Recall @ K (K = 4)**
+* **Δ vs Hybrid Baseline**
 
 No new metrics are introduced.
-
-
-## Expected Outcomes
-
-This system is expected to show:
-
-* Clear reranking gains for:
-
-  * **definition** questions
-  * **procedural** questions
-  * **scope / inventory** questions
-* Limited or inconsistent gains for:
-
-  * **rationale-heavy** questions
-* Persistent failures where:
-
-  * candidate pools are noisy
-  * decisive evidence is distributed across chunks
-
-Reranking is **not** expected to:
-
-* Improve corpus coverage
-* Eliminate hallucinations
-* Guarantee answer correctness
-
----
-
-## Why This Matters
-
-Most RAG systems treat ranking as an implementation detail.
-
-This repository treats it as a **first-class system boundary**.
-
-By isolating reranking from:
-
-* retrieval
-* generation
-* evaluation
-
-one can say, with precision:
-
-> **When reranking helps, why it helps — and when it does not.**
 
 ---
 
 ## Empirical Results
 
-This section reports **measured reranking impact**, using the **unchanged evaluation harness** from `rag-retrieval-eval`.
+Reranking was evaluated over **54 deterministic questions**, using a **fixed candidate pool (Top-N = 42)** and **Top-K = 4** passed to the generator.
 
-### Overall Impact
+### Overall Impact (Summary)
 
-Reranking was evaluated over a **fixed candidate pool** (Top-N = 42), with **Top-K = 4** passed to the generator.
+| Metric                                   | Observed |
+| ---------------------------------------- | -------- |
+| Total questions                          | 54       |
+| Questions with relevant evidence in pool | ~50      |
+| Median rank (heuristic reranker)         | ~15–18   |
+| Median rank (cross-encoder reranker)     | ~2–3     |
+| Top-K success rate (heuristic)           | ~5–8%    |
+| Top-K success rate (cross-encoder)       | ~35–40%  |
 
-**Median Rank of First Relevant Chunk:**
+**Interpretation**
 
-| System           | Median Rank |
-| ---------------- | ----------- |
-| Hybrid Retrieval | **10.5**    |
-| Reranked Hybrid  | **3.5**     |
-| **Median Gain**  | **+4.5**    |
-
-**Interpretation:**
-
-* In many cases, the correct chunk was already present in the candidate pool
-* Reranking materially improved **priority**, not recall
-* Gains were achieved *without* changing retrieval, embeddings, or chunking
-
-This confirms the Week-3 hypothesis:
-
-> **Retrieval often fails by misordering evidence, not by missing it.**
+* Heuristic reranking **does not reliably improve ranking** and often degrades it
+* Cross-encoder reranking **materially improves evidence prioritization**
+* Gains are achieved **without changing retrieval, embeddings, or chunking**
 
 ---
 
@@ -238,22 +206,22 @@ Reranking benefits are **not uniform** across question types.
 
 * **Definition questions**
 
-  * Clear lexical anchors (“is defined as”, “refers to”)
+  * Clear lexical and semantic anchors
 * **Procedural questions**
 
-  * Step indicators and ordering cues
+  * Step-like structure and ordering cues
 * **Scope / inventory questions**
 
   * Enumerations and inclusion language
 
 ### Limited or Inconsistent Gains For
 
-* **Rationale questions**
+* **Rationale / principle questions**
 
   * Evidence distributed across multiple chunks
   * Explanatory prose with weak local anchors
 
-### Implication
+**Implication**
 
 Reranking improves **decisiveness**, not **semantic synthesis**.
 
@@ -262,7 +230,7 @@ When correct evidence is:
 * **localized** → reranking helps
 * **distributed** → reranking saturates quickly
 
-These failures are **not reranking failures** — they indicate upstream limits in chunking or representation (Week-5).
+These failures indicate **upstream limits** (chunking, representation), not reranking defects.
 
 ---
 
@@ -275,7 +243,130 @@ The following failure modes persist after reranking:
 * Queries requiring cross-chunk reasoning
 * Generator ignoring provided evidence
 
-These remain out of scope **by design**.
+These remain **out of scope by design**.
+
+---
+
+## How to Run
+
+### 1. Clone and set up the environment
+
+```bash
+git clone https://github.com/Arnav-Ajay/rag-reranking-playground.git
+cd rag-reranking-playground
+pip install -r requirements.txt
+```
+
+---
+
+### 2. Run the heuristic reranker (default)
+
+This runs the **explainable heuristic reranker**, which is the default mode.
+
+```bash
+python reranker.py
+```
+
+This produces:
+
+* a question-level reranked artifact
+* reranking metrics computed under the unchanged evaluation harness
+
+---
+
+### 3. Run the cross-encoder reranker
+
+To evaluate **learned relevance-based reranking**, explicitly enable cross-encoder mode:
+
+```bash
+python reranker.py --rerank-mode cross-encoder
+```
+
+By default, this uses:
+
+```
+cross-encoder/ms-marco-MiniLM-L-6-v2
+```
+
+as the relevance model.
+
+The retrieval pipeline, candidate pool, and evaluation metrics remain **fully unchanged**.
+
+---
+
+## Configurable Arguments (Optional)
+
+The default arguments are set to **match the frozen contract** and **do not need to be changed** to reproduce reported results.
+
+They are exposed **only for controlled experimentation**.
+
+### Input / Output Paths
+
+```python
+--input-csv        data/chunks_and_questions/input_artifact.csv
+--chunks-csv       data/chunks_and_questions/chunks_output.csv
+--output-csv       data/results_and_summaries/rag_reranked_artifact.csv
+--debug-candidates (optional) candidate-level debug output
+```
+
+### Evaluation Contract (Locked by Default)
+
+```python
+--top-n 20 or 50   # Candidate pool size (must match rag-hybrid-retrieval inspect_k)
+--k     4    # Top-K passed to generator (locked across previous repos)
+```
+
+Changing these values breaks direct comparability with prior repositories.
+
+---
+
+### Heuristic Reranker Weights (Advanced / Diagnostic Use)
+
+These weights control the **linear heuristic reranker only**:
+
+```python
+--wd 0.4   # normalized dense score
+--wb 0.3   # normalized sparse (BM25) score
+--wo 0.1   # lexical overlap
+--wk 0.1   # keyphrase hit rate
+--wp 0.0   # pattern cues
+--wl 0.1   # length penalty
+```
+
+These are intentionally exposed to support:
+
+* ablation
+* sensitivity analysis
+* failure inspection
+
+They are **not tuned for optimal performance**.
+
+---
+
+### Cross-Encoder Configuration
+
+```python
+--rerank-mode cross-encoder
+--cross-encoder-model cross-encoder/ms-marco-MiniLM-L-6-v2
+```
+
+Any compatible `sentence-transformers` cross-encoder can be substituted, provided:
+
+* it scores *(query, chunk)* pairs
+* it does not access gold labels
+* it does not modify candidate membership
+
+---
+
+## Reproducibility Note
+
+All reported results in this repository were produced using:
+
+* the default arguments
+* a frozen retrieval contract
+* an identical candidate pool before and after reranking
+
+Changing configuration parameters is **explicitly exploratory** and should not be conflated with the main findings.
 
 ---
 
@@ -283,13 +374,16 @@ These remain out of scope **by design**.
 
 This repository demonstrates that:
 
-> **Reranking is a first-class system boundary that materially improves retrieval quality — but only within its causal limits.**
+> **Reranking is a first-class system boundary that can materially improve retrieval quality — but only when supplied with sufficiently strong relevance signals.**
 
-Reranking:
+Specifically:
 
-* improves evidence prioritization
-* reduces ranking failures
-* does not expand recall
-* does not guarantee correct answers
+* Heuristic reranking is unstable and unreliable
+* Learned relevance (cross-encoders) substantially improves Top-K inclusion
+* Reranking does **not** expand recall
+* Reranking does **not** guarantee correct answers
+
+The remaining bottleneck is **how evidence is chunked and represented**, motivating `rag-chunking-strategies`.
 
 ---
+

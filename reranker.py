@@ -29,9 +29,9 @@ Usage:
 """
 
 import argparse
-import math
+from functools import lru_cache
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -172,6 +172,46 @@ def compute_length_penalty(chunk_text: str, min_chars: int = 200) -> float:
     # linear ramp: 1 at 0 chars -> 0 at min_chars
     return max(0.0, (min_chars - n) / float(min_chars))
 
+# -------------------------
+# Cross-encoder scoring (optional)
+# -------------------------
+def load_cross_encoder(model_name: str):
+    """
+    Lazy-load cross-encoder to avoid overhead unless explicitly requested.
+    """
+    try:
+        from sentence_transformers import CrossEncoder
+    except ImportError as e:
+        raise ImportError(
+            "Cross-encoder requires sentence-transformers. "
+            "Install with: pip install sentence-transformers"
+        ) from e
+
+    return CrossEncoder(model_name)
+
+
+@lru_cache(maxsize=1)
+def _cached_ce(model_name: str):
+    return load_cross_encoder(model_name)
+
+
+def compute_cross_encoder_scores(
+    cand: pd.DataFrame,
+    model_name: str,
+    batch_size: int = 16,
+) -> pd.Series:
+    """
+    Compute cross-encoder relevance scores for (query, chunk) pairs.
+    Returns a Series aligned with cand.index.
+    """
+    ce = _cached_ce(model_name)
+
+    pairs = list(
+        zip(cand["question_text"].tolist(), cand["chunk_text"].tolist())
+    )
+
+    scores = ce.predict(pairs, batch_size=batch_size, show_progress_bar=True)
+    return pd.Series(scores, index=cand.index, dtype=float)
 
 # -------------------------
 # Parsing helpers
@@ -452,12 +492,12 @@ def build_question_level_output(
 # CLI / main
 # -------------------------
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Week-4 explainable reranker over retrieval artifacts")
+    p = argparse.ArgumentParser(description="Explainable reranker over retrieval artifacts")
     p.add_argument("--input-csv", default="data/chunks_and_questions/input_artifact.csv", help="Question-level retrieval artifact (xlsx)")
     p.add_argument("--chunks-csv", default="data/chunks_and_questions/chunks_output.csv", help="Chunk lookup CSV (chunk_id, doc_id, text)")
     p.add_argument("--output-csv", default="data/results_and_summaries/rag_reranked_artifact.csv", help="Question-level reranked output CSV")
     p.add_argument("--debug-candidates", default="", help="Optional candidate-level debug CSV output path")
-    p.add_argument("--top-n", type=int, default=42, help="Candidate pool size to log per question (must match Week-3 inspect_k)")
+    p.add_argument("--top-n", type=int, default=50, help="Candidate pool size to log per question (must match Week-3 inspect_k)")
     p.add_argument("--k", type=int, default=4, help="Evaluation top-k (locked to 4 in Week-2/3)")
     p.add_argument("--wd", type=float, default=0.4, help="Weight for norm_dense")
     p.add_argument("--wb", type=float, default=0.3, help="Weight for norm_bm25")
@@ -465,6 +505,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--wk", type=float, default=0.1, help="Weight for keyphrase")
     p.add_argument("--wp", type=float, default=0.0, help="Weight for pattern")
     p.add_argument("--wl", type=float, default=0.1, help="Weight for length_penalty")
+    p.add_argument("--rerank-mode", choices=["heuristic", "cross-encoder"], default="heuristic", help="Reranking strategy to use")
+    p.add_argument("--cross-encoder-model", default="cross-encoder/ms-marco-MiniLM-L-6-v2", help="Cross-encoder model name (sentence-transformers)")
+
     return p.parse_args()
 
 
@@ -497,7 +540,29 @@ def main():
         "wp": args.wp,
         "wl": args.wl,
     }
-    cand_r = rerank_candidates(cand, weights=weights)
+    
+    if args.rerank_mode == "heuristic":
+        cand_r = rerank_candidates(cand, weights=weights)
+
+    elif args.rerank_mode == "cross-encoder":
+        # Copy to avoid mutating baseline columns
+        cand_ce = cand.copy()
+
+        # Compute cross-encoder score
+        cand_ce["cross_score"] = compute_cross_encoder_scores(
+            cand_ce,
+            model_name=args.cross_encoder_model,
+        )
+
+        # Rerank strictly by learned relevance
+        cand_ce = cand_ce.sort_values(
+            ["question_id", "cross_score"],
+            ascending=[True, False],
+        )
+        cand_ce["rerank_rank"] = cand_ce.groupby("question_id").cumcount() + 1
+
+        cand_r = cand_ce
+
 
     # Optional candidate-level debug
     if args.debug_candidates:
@@ -512,6 +577,8 @@ def main():
         k_eval=args.k,
     )
 
+    output_csv = args.output_csv.split(".csv")[0] + f"_{args.rerank_mode}.csv"
+    args.output_csv = output_csv
     out_q.to_csv(args.output_csv, index=False)
     print(f"Question-level reranked artifact saved to: {args.output_csv}")
 
