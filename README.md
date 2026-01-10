@@ -1,5 +1,19 @@
 # `rag-reranking-playground`
 
+## TL;DR
+
+> **This repository isolates reranking as a system boundary in RAG.**
+> Using a frozen hybrid-retrieval candidate pool, we show that:
+>
+> * Naive heuristic reranking is unstable and often degrades ranking
+> * Learned relevance (cross-encoders) materially improves Top-K inclusion
+> * Reranking improves *priority*, not *recall*, and saturates when evidence is poorly chunked
+>
+> **Conclusion:** ranking is a real bottleneck — but only strong relevance signals help, and even they have limits.
+
+---
+
+
 ## Why This Repository Exists
 
 The previous repository, [`rag-hybrid-retrieval`](https://github.com/Arnav-Ajay/rag-hybrid-retrieval), established a critical result:
